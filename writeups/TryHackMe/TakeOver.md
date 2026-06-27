@@ -1,4 +1,4 @@
-# TryHackMe — TakeOver (Writeup)
+# TryHackMe — TakeOver (My Writeup)
 
 - Platform: TryHackMe  
 - Room: TakeOver  
@@ -9,75 +9,100 @@
 ---
 
 ## Overview
-The TakeOver room focuses on identifying vulnerable subdomains that can be abused in a subdomain takeover. The goal was to enumerate the target, discover unclaimed external resources (e.g., AWS S3 endpoints) referenced by subdomains, and retrieve the room flag.
+I worked through the TakeOver room to get a hands-on feel for subdomain takeover. This was my first focused exercise on the topic — I wanted to practice finding forgotten subdomains and understanding how DNS entries can point to deprovisioned cloud resources.
 
 ## Objective
-- Enumerate web infrastructure and subdomains for futurevera.thm
-- Identify any subdomain pointing to an unclaimed third-party resource
-- Demonstrate a subdomain takeover scenario and retrieve the flag
+- Walk through web recon for futurevera.thm
+- Find any subdomain that points to an unclaimed third-party service
+- Demonstrate the takeover scenario and retrieve the room flag (redacted in this writeup)
 
-## Enumeration
-Tools used:
-- nmap
-- browser (certificate inspector)
-- /etc/hosts edits
-- basic web requests (curl/browser)
+## What I did (quick summary)
+- Ran a light nmap scan to confirm services
+- Visited likely subdomains and inspected SSL certificates for hidden names
+- Used /etc/hosts to test subdomains locally
+- Followed a redirected URL to an AWS S3 endpoint that indicated an unclaimed resource
 
-Nmap scan (quick host/service check):
+---
+
+## Enumeration — what I ran and why
+I started simple to avoid noise.
+
+Nmap command I used:
 ```bash
 nmap futurevera.thm -oN nmapResults.txt
 ```
-Observed open ports:
+Result (important lines):
 | Port | Service |
 |------|---------|
 | 22   | ssh     |
 | 80   | http    |
 | 443  | https   |
 
-Notes:
-- Ports 80 and 443 were the focus since this lab centers on web infrastructure.
-- SSL certificates are useful reconnaissance sources (SANs can reveal hidden subdomains).
+Since this room is web-focused, I ignored SSH and concentrated on ports 80/443.
 
-## Exploitation
-1. Hypothesis from room description: a rebuild of the support system → likely subdomain:
-   - support.futurevera.thm
-2. Added support and the main host to /etc/hosts for testing:
+One quick tip I used: inspect SSL certificates in the browser. Certificates often include Subject Alternative Names (SANs) that reveal additional subdomains the company owns.
+
+---
+
+## Finding the first subdomain — my reasoning
+The room description mentioned the company was rebuilding their support system. That suggested a support subdomain might exist, so I tried:
+
+- support.futurevera.thm
+
+I didn't rely on DNS for the lab; instead I pointed the hostnames to the lab IP in my local hosts file for testing:
+
 ```bash
 sudo nano /etc/hosts
-# add:
+# example entry I added (replace with real lab IP):
 # 10.10.xx.xx futurevera.thm support.futurevera.thm
 ```
-3. Visited support.futurevera.thm in the browser and inspected the SSL certificate. Certificates often reveal Subject Alternative Names (SANs) that list additional subdomains.
-4. Found another SAN entry (a hidden subdomain). Added it to /etc/hosts:
+
+After adding the entry, I loaded support.futurevera.thm in my browser and inspected the certificate details.
+
+---
+
+## Finding the second subdomain — certificate lead
+In the certificate SANs I spotted another hostname I hadn't thought to try. I added that hostname to /etc/hosts as well and visited it.
+
+Example hosts entry I used:
 ```text
 10.10.xx.xx futurevera.thm support.futurevera.thm secret-subdomain.support.futurevera.thm
 ```
-5. Accessed the discovered subdomain over HTTP and observed a redirect to an AWS S3 website endpoint that displayed a missing resource page (typical S3 "NoSuchBucket" / unconfigured website response).
-   - This indicates the DNS points to a cloud provider resource that no longer exists or is unclaimed.
-   - The redirected URL contained the room flag.
 
-Proof / indicators of takeover:
-- DNS CNAME or alias referencing a third-party service (S3) while the resource is absent
-- HTTP redirect to a cloud provider URL showing missing resource text
-- Flag present in the redirected URL (successful completion of lab)
+This step was the key — cert inspection quickly revealed an additional target without brute-forcing or wordlists.
 
-## Privilege Escalation
-- Not applicable for this web-focused lab. No local or host-level escalation steps were required.
+---
 
-## Lessons Learned
-- SSL certificate inspection (SANs) is a fast way to discover hidden or forgotten subdomains.
-- /etc/hosts is useful for lab testing when DNS is not under your control.
-- Subdomain takeover is a real risk when DNS records point to third-party services that may be removed or deprovisioned.
-- Impact of takeover includes phishing, brand impersonation, cookie/session abuse, and serving malicious payloads from a trusted domain.
-- Always verify third-party resource ownership when decommissioning services; remove or update DNS entries.
+## Discovering the takeover (what happened)
+When I visited the discovered subdomain over HTTP, it redirected me to an AWS S3 website endpoint that displayed a missing-bucket style page. In short:
 
-## Short Mitigations
-- Remove DNS records that point to deprovisioned third-party services.
-- Implement DNS and asset inventories to track external dependencies.
-- Use automated checks to detect dangling CNAMEs and unclaimed cloud resources.
+- The DNS record still pointed to a third‑party service (S3)
+- The backend S3 resource was gone or unclaimed
+- The HTTP response and the redirected URL made the takeover obvious
+
+The redirected URL contained the room flag — I redacted the flag here to keep this writeup safe.
+
+Why this is a takeover: the company controls the DNS but does not control (or has deleted) the cloud resource the DNS points to; an attacker can claim the cloud resource and host content under the company’s subdomain.
+
+---
+
+## My takeaways (lessons learned)
+- Certificate inspection is a fast, low-effort way to find hidden subdomains (look at SANs).
+- /etc/hosts is a practical shortcut for lab environments when you need to map names to lab IPs.
+- Subdomain takeover is real and impactful: phishing, brand abuse, cookie/tracking misuse, and more can follow from an unclaimed service.
+- Organizations should remove DNS records that point to deprovisioned services or add monitoring to detect dangling CNAMEs.
+
+---
+
+## Short mitigations I recommend
+- Maintain an inventory of DNS records and corresponding cloud resources.
+- Remove or update DNS entries when decommissioning services.
+- Use automated scans to detect dangling CNAMEs or unclaimed cloud endpoints.
+
+---
 
 ## References
 - TryHackMe — TakeOver room: https://tryhackme.com/room/takeover  
-- HackTricks — Subdomain Takeover (recommended read)  
-- HackerOne Guide — Subdomain Takeovers (recommended read)  
+- HackTricks — Subdomain Takeover  
+- HackerOne Guide — Subdomain Takeovers  
 - MDN — Subdomain security notes
